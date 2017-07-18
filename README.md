@@ -68,6 +68,7 @@ optional arguments:
   --batchsize BATCHSIZE  # of keys to batch delete (default 100)
   --maxqueue MAXQUEUE    Max size of deletion queue (default 10k)
   --delbucket            If S3 path is a bucket path, delete the bucket also
+  --olderthanhours INT   Number of hours that keys have to be older than current time to be deleted
 
 ```
 
