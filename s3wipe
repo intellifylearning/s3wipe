@@ -5,6 +5,7 @@ import multiprocessing, signal, re
 from multiprocessing.pool import ThreadPool
 import boto.s3.connection
 from datetime import datetime, date, time, timedelta
+import re
 
 version = "0.2"
 
@@ -57,6 +58,8 @@ def getArgs():
         action='store_true')
     parser.add_argument("--olderthanhours", 
         type=int, help="Time in hours from current time e.g 3 (default = now)", required=False)
+    parser.add_argument("--namematchesregex", 
+        help="Regular expression to match e.g., ^([A-Z][0-9]+)+$", required=False)
 
     return parser.parse_args()
 
@@ -97,6 +100,19 @@ def shouldDeleteBasedOnLastModified(dt_str):
     else:
         return True
 
+# check if object is older than specified olderthanhours
+def shouldDeleteBasedOnNamePattern(name_str):
+    # namePattern comes from args
+    if namePattern is not None:
+        matched = namePattern.match(name_str)
+        if matched:
+            #logging.debug("name %s matched - DELETING", name_str)
+            return True
+        else:
+            return False
+    else:
+        return True
+
 # Our deletion worker, called by Threadpool
 def deleter(args, rmQueue, numThreads):
 
@@ -115,7 +131,8 @@ def deleter(args, rmQueue, numThreads):
         # to our local deletion list
         rmKey = rmQueue.get()
         if shouldDeleteBasedOnLastModified(rmKey.last_modified):
-            rmKeys.append(rmKey)
+            if shouldDeleteBasedOnNamePattern(rmKey.name):
+                rmKeys.append(rmKey)
 
         # Poll our deletion queue until it is empty or
         # until we have accumulated enough keys in this
@@ -125,7 +142,8 @@ def deleter(args, rmQueue, numThreads):
                 if args.dryrun:
                     for key in rmKeys:
                         if shouldDeleteBasedOnLastModified(key.last_modified):
-                            logger.info("Would have deleted '%s' created at '%s' datecheck '%s'", key.name, key.last_modified, checkDate(key.last_modified))
+                            if shouldDeleteBasedOnNamePattern(key.name):
+                                logger.info("Would have deleted '%s' created at '%s' datecheck '%s'", key.name, key.last_modified, checkDate(key.last_modified))
                 else:
                     mybucket.delete_keys(rmKeys)
             except:
@@ -180,7 +198,13 @@ def main():
     compareTime = None
     if args.olderthanhours:
         compareTime = datetime.utcnow() - timedelta(hours=args.olderthanhours)
-    logger.info("Initialized compareTime to %s", compareTime)
+        logger.info("Initialized compareTime to %s", compareTime)
+    
+    global namePattern
+    namePattern = None
+    if args.namematchesregex:
+        namePattern = re.compile(args.namematchesregex)
+        logger.info("initialized pattern %s", namePattern.pattern)
 
     rmQueue = Queue.Queue(maxsize=args.maxqueue)
 
